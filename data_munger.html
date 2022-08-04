@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+            h1 { color: #F90B6D; font-family: 'Open Sans', sans-serif; font-size: 34px; font-weight: 300; line-height: 40px; margin: 0 0 16px; }
+            h2 { color: #F90B6D; font-family: 'Open Sans', sans-serif; font-size: 24px; font-weight: 300; line-height: 32px; margin: 0 0 14px; }
+            p { color: #222; font-family: 'Open Sans', sans-serif; font-size: 15px; font-weight: 400; line-height: 24px; margin: 0 0 14px; }
+            li { color: #222; font-family: 'Open Sans', sans-serif; font-size: 15px; font-weight: 400;}
+            a { background: #fff; color: #222; text-decoration: none; }
+            a:hover { background: #F90B6D; color: #eee; text-decoration: none; }
+            th { color: #F90B6D; font-family: 'Open Sans', sans-serif; font-size: 15px; font-weight: 400;}
+            td { color: #222; font-family: 'Open Sans', sans-serif; font-size: 15px; font-weight: 300;}
+        </style>
+    </head>
+<body>
+    <div>
+        <h1>Client Side Data Munger</h1>
+        <p>
+        <ul>
+            <li>Uses the standard javascript in your browser to do <em>cool stuff<sup>(tm)</sup></em> with data you have.</li>
+            <li>No external javascript is imported so it should be as safe as your browser</li>
+            <li>Currently only works in some browsers: <a href="https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API">Browser Compatability</a></li>
+            <li>The CSV Import checks for "invalid" csv formatting on a line and will reject it. This is partly due to the original authors defination of correct csv and also I think done to ensure the csv line is parsed correctly.</li>
+        </ul>
+        </p>
+    </div>
+    <div id="selectdatadiv">
+        <h2>Select Data</h2>
+        <p>If you select a file it will read the file and show the results as a table</p>
+        <input id="selectdatabutton" type="button" value="Select Data" />
+    </div>
+    <div id="writeoutput">
+        <h2>Write Data to File</h2>
+        <p>Writes all data in the output to a file, including columns not specified for display</p>
+        <input id="writeoutputbutton" type="button" value="Write Output" />
+    </div>
+    <div id="displayoutput">
+        <h2>Display selected columns</h2>
+        <table id="outputdatadisplay"></table>
+    </div>
+</body>
+<script>
+    // we create a variable to hold our final output
+    let outputData;
+
+    // we use file handle so that you can change this to load directories etc.
+    let fileHandle;
+
+    // link this script to the submit button on the page.
+    let submitButton = document.getElementById('selectdatabutton');
+    submitButton.addEventListener('click', function(event){
+        processData();
+    });
+
+    let writeoutputButton = document.getElementById('writeoutputbutton');
+    writeoutputButton.addEventListener('click', function(event){
+        try {
+            writeOutputData();
+        }
+        catch(error) {
+            alert(`Unable to write file: ${error}`);
+        }
+
+    });
+
+    // imports the data for processing
+    async function processData() {
+        try{
+            data = await readData();            
+            outputData = convertCSVDataToJSON(data);
+            displayOutputData(['src_filename','id','gender']);
+        }
+        catch(error) {console.log(error);}
+    }
+
+    // reads a file and returns the data read JSON
+    // assume first line of input file is a heading row
+    async function readData() {
+        let data;
+        [fileHandle] = await window.showOpenFilePicker({
+            types: [{
+                description: 'CSV files',
+                accept: {
+                    'text/csv' : ['.csv']
+                }}],
+            excludeAcceptAllOption: false,
+            multiple: false
+        });
+
+        if(fileHandle.kind === 'file'){
+            const fileData = await fileHandle.getFile();
+            data = await fileData.text();
+        }
+        else {
+            alert("Not a valid file");
+        }
+        return ({
+            'filename': fileHandle.name,
+            'data' : data
+        })
+    }
+
+    // converts csv upload data to JSON as a standard internal format
+    function convertCSVDataToJSON(data) {
+        let dataArray = [];
+        let headerRow = true;
+        let columnHeaders;
+        let sourceFile = data[`filename`];
+        let columnCount;
+        let rawDataRowArray = data['data'].split(/\r\n|\n/);
+        let alertMessage = '';
+        rawDataRowArray.forEach(function(item,index){
+            // ignore empty rows
+            if (item.length > 0 ) {
+                // assume first row of data is the header row
+                if(headerRow) {
+                    headerRow = false;
+                    columnHeaders = csvToArray(item);
+                    columnCount = columnHeaders.length;
+                }
+                else {
+                    let dataLine = csvToArray(item);
+                    if(dataLine == null) {
+                        alertMessage += `\nsource: ${sourceFile} - could not read line ${index}`
+                    }
+                    else{
+                        let newJSONObject = {};
+                        let currentColumn = 0;
+                        newJSONObject['src_filename'] = data['filename'];
+                        while (currentColumn < columnCount) {
+                            let columnHeader = columnHeaders[currentColumn];
+                            let cellValue;
+                            try {
+                                cellValue = dataLine[currentColumn];
+                                if (cellValue != null) {
+                                    newJSONObject[columnHeader] = cellValue;
+                                }
+                            }
+                            catch(error) {
+                                // do nothing
+                            }
+                            currentColumn ++;
+                        }
+                        dataArray.push(newJSONObject);
+                    }
+                }
+            }
+        });
+        if(alertMessage.length > 0) {alert(alertMessage)};
+        return dataArray;
+    }
+
+    function csvToArray(text) {
+        var re_valid = /^\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*(?:,\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*)*$/;
+        var re_value = /(?!\s*$)\s*(?:'([^'\\]*(?:\\[\S\s][^'\\]*)*)'|"([^"\\]*(?:\\[\S\s][^"\\]*)*)"|([^,'"\s\\]*(?:\s+[^,'"\s\\]+)*))\s*(?:,|$)/g;
+        // Return NULL if input string is not well formed CSV string.
+        if (!re_valid.test(text)) return null;
+        var a = [];                     // Initialize array to receive values.
+        text.replace(re_value, // "Walk" the string using replace with callback.
+            function(m0, m1, m2, m3) {
+                // Remove backslash from \' in single quoted values.
+                if      (m1 !== undefined) a.push(m1.replace(/\\'/g, "'"));
+                // Remove backslash from \" in double quoted values.
+                else if (m2 !== undefined) a.push(m2.replace(/\\"/g, '"'));
+                else if (m3 !== undefined) a.push(m3);
+                return ''; // Return empty string.
+            });
+        // Handle special case of empty last value.
+        if (/,\s*$/.test(text)) a.push('');
+        return a;
+    }
+
+    // displays the output data as a table.
+    function displayOutputData(columnHeaders) {
+        let table = document.getElementById("outputdatadisplay");
+        table.replaceChildren();
+        let _tr_ = document.createElement('tr');
+
+        //create the table header using the array
+        let tr = _tr_.cloneNode(false);
+        columnHeaders.forEach(function(item,index){
+            let th = document.createElement('th');
+            th.appendChild(document.createTextNode(item))
+            tr.appendChild(th);
+        });
+        table.appendChild(tr);
+
+        // create the date rows from the JSON
+        outputData.forEach(function(item,index){
+            // create the row
+            let tr = _tr_.cloneNode(false);
+            columnHeaders.forEach(function(columnItem,headindex) {
+                let itemValue = item[columnItem];
+                let td = document.createElement('td');
+                td.appendChild(document.createTextNode(itemValue))
+                tr.appendChild(td);
+            });
+            table.appendChild(tr);
+        });
+    }
+
+    // allows the user to press a button to download the data
+    async function writeOutputData() {
+        // TODO: this should really use the same summary heading list as the display
+        // prepare the data in CSV format
+        const items = outputData;
+        const replacer = (key, value) => value === null ? '' : value // specify how you want to handle null values here
+        const header = Object.keys(items[0])
+        const csv = [
+            header.join(','), // header row first
+            ...items.map(row => header.map(fieldName => JSON.stringify(row[fieldName], replacer)).join(','))
+        ].join('\r\n')
+        
+        const newHandle = await window.showSaveFilePicker({
+            types: [{
+                description: 'CSV files',
+                accept: {
+                    'text/csv' : ['.csv']
+                }}]
+        } );
+        const writableStream = await newHandle.createWritable();
+        await writableStream.write(csv);
+        await writableStream.close();
+        alert("File written");
+    }
+</script>
+</html>
